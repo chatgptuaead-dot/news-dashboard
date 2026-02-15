@@ -74,61 +74,11 @@ function buildTabs() {
 function renderNews() {
   grid.innerHTML = "";
 
-  if (activeSource === "all") {
-    renderMixedView();
-  } else {
-    renderSourceView(newsData.filter((s) => s.id === activeSource));
-  }
-}
+  const sources =
+    activeSource === "all"
+      ? newsData
+      : newsData.filter((s) => s.id === activeSource);
 
-// Show all stories mixed together, sorted by date (newest first)
-function renderMixedView() {
-  // Collect all articles with their source info
-  const allArticles = [];
-  newsData.forEach((source) => {
-    if (!source.articles) return;
-    source.articles.forEach((article) => {
-      allArticles.push({
-        ...article,
-        sourceName: source.name,
-        sourceIcon: source.icon,
-        sourceColor: source.color,
-      });
-    });
-  });
-
-  // Sort by date, newest first
-  allArticles.sort((a, b) => {
-    const dateA = a.pubDate ? new Date(a.pubDate).getTime() : 0;
-    const dateB = b.pubDate ? new Date(b.pubDate).getTime() : 0;
-    return dateB - dateA;
-  });
-
-  if (allArticles.length === 0) {
-    grid.innerHTML =
-      '<div class="source-no-articles">No stories available right now. Try again later.</div>';
-    return;
-  }
-
-  const section = document.createElement("section");
-  section.className = "source-section";
-  section.innerHTML = `
-    <div class="source-header">
-      <div class="source-badge" style="background: ${hexToRgba("#6c63ff", 0.15)}">
-        🌎
-      </div>
-      <h2 class="source-name">Latest Stories</h2>
-      <span class="source-count">${allArticles.length} stories from all sources</span>
-    </div>
-    <div class="articles articles-mixed">
-      ${allArticles.map((article, i) => mixedArticleCard(article, i)).join("")}
-    </div>
-  `;
-  grid.appendChild(section);
-}
-
-// Show articles grouped by source (when a specific tab is selected)
-function renderSourceView(sources) {
   sources.forEach((source) => {
     const section = document.createElement("section");
     section.className = "source-section";
