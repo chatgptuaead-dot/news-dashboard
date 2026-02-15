@@ -155,7 +155,7 @@ const NEWS_SOURCES = [
 
 // Cache to avoid hammering RSS feeds
 const cache = new Map();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL = 3 * 60 * 1000; // 3 minutes
 
 async function fetchFeed(source) {
   const cacheKey = source.id;
@@ -305,6 +305,11 @@ app.use(express.static(path.join(__dirname, "public")));
 
 // API: Get all news
 app.get("/api/news", async (req, res) => {
+  // If ?refresh=true, clear the cache to force fresh fetches
+  if (req.query.refresh === "true") {
+    cache.clear();
+  }
+
   try {
     const results = await Promise.allSettled(
       NEWS_SOURCES.map((source) => fetchFeed(source))

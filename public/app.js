@@ -25,7 +25,7 @@ async function loadNews(forceRefresh = false) {
   refreshBtn.classList.add("spinning");
 
   try {
-    const url = forceRefresh ? "/api/news?t=" + Date.now() : "/api/news";
+    const url = forceRefresh ? "/api/news?refresh=true" : "/api/news";
     const res = await fetch(url);
     const json = await res.json();
 
