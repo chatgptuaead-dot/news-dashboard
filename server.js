@@ -39,8 +39,8 @@ const NEWS_SOURCES = [
     color: "#BB1919",
     icon: "📺",
     feeds: [
-      "https://feeds.bbci.co.uk/news/most_read/rss.xml",
       "https://feeds.bbci.co.uk/news/rss.xml",
+      "https://feeds.bbci.co.uk/news/world/rss.xml",
     ],
   },
   {
@@ -49,8 +49,9 @@ const NEWS_SOURCES = [
     color: "#CC0000",
     icon: "🔴",
     feeds: [
-      "http://rss.cnn.com/rss/edition.rss",
       "http://rss.cnn.com/rss/cnn_topstories.rss",
+      "http://rss.cnn.com/rss/cnn_latest.rss",
+      "http://rss.cnn.com/rss/edition.rss",
     ],
   },
   {
@@ -70,6 +71,7 @@ const NEWS_SOURCES = [
     icon: "🌍",
     feeds: [
       "https://www.skynewsarabia.com/web/rss",
+      "https://news.google.com/rss/search?q=site:skynewsarabia.com+breaking&hl=ar",
       "https://news.google.com/rss/search?q=site:skynewsarabia.com&hl=ar",
     ],
   },
@@ -79,8 +81,8 @@ const NEWS_SOURCES = [
     color: "#1A1A1A",
     icon: "🇫🇷",
     feeds: [
-      "https://www.lemonde.fr/rss/une.xml",
       "https://www.lemonde.fr/rss/en_continu.xml",
+      "https://www.lemonde.fr/rss/une.xml",
     ],
   },
   {
@@ -123,8 +125,9 @@ const NEWS_SOURCES = [
     color: "#FF8000",
     icon: "⚡",
     feeds: [
-      "https://www.reutersagency.com/feed/?taxonomy=best-sectors&post_type=best",
+      "https://news.google.com/rss/search?q=site:reuters.com+breaking&hl=en",
       "https://news.google.com/rss/search?q=site:reuters.com&hl=en",
+      "https://www.reutersagency.com/feed/?taxonomy=best-sectors&post_type=best",
     ],
   },
   {
@@ -143,8 +146,8 @@ const NEWS_SOURCES = [
     color: "#E3120B",
     icon: "📊",
     feeds: [
-      "https://www.economist.com/rss",
       "https://www.economist.com/latest/rss.xml",
+      "https://www.economist.com/rss",
       "https://news.google.com/rss/search?q=site:economist.com&hl=en",
     ],
   },
@@ -170,8 +173,12 @@ async function fetchFeed(source) {
       try {
         const feed = await p.parseURL(feedUrl);
         if (feed.items && feed.items.length > 0) {
-          // Preserve the feed's natural order — RSS feeds rank by
-          // editorial importance / most-read, so top stories come first
+          // Sort by most recent first — breaking news on top
+          feed.items.sort((a, b) => {
+            const dateA = parseDate(a.pubDate || a.isoDate);
+            const dateB = parseDate(b.pubDate || b.isoDate);
+            return dateB - dateA;
+          });
           items = feed.items.slice(0, 5).map((item) => ({
             title: item.title || "Untitled",
             link: item.link || "#",
