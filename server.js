@@ -170,15 +170,9 @@ async function fetchFeed(source) {
       try {
         const feed = await p.parseURL(feedUrl);
         if (feed.items && feed.items.length > 0) {
-          // Sort all items by date (most recent first) before taking top 5
-          const sorted = feed.items
-            .map((item) => ({
-              ...item,
-              _parsedDate: parseDate(item.pubDate || item.isoDate),
-            }))
-            .sort((a, b) => b._parsedDate - a._parsedDate);
-
-          items = sorted.slice(0, 5).map((item) => ({
+          // Preserve the feed's natural order — RSS feeds rank by
+          // editorial importance / most-read, so top stories come first
+          items = feed.items.slice(0, 5).map((item) => ({
             title: item.title || "Untitled",
             link: item.link || "#",
             summary: extractSummary(item),
