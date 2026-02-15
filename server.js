@@ -89,8 +89,10 @@ const NEWS_SOURCES = [
     color: "#8B0000",
     icon: "📰",
     feeds: [
+      "https://aawsat.com/feed",
+      "https://aawsat.com/feed/rss",
       "https://english.aawsat.com/feed",
-      "https://english.aawsat.com/rss.xml",
+      "https://news.google.com/rss/search?q=site:aawsat.com&hl=en",
     ],
   },
   {
@@ -106,11 +108,13 @@ const NEWS_SOURCES = [
   },
   {
     id: "thenational",
-    name: "The National",
+    name: "The National News",
     color: "#003B5C",
     icon: "🏛️",
     feeds: [
       "https://www.thenationalnews.com/arc/outboundfeeds/rss/?outputType=xml",
+      "https://www.thenationalnews.com/rss",
+      "https://news.google.com/rss/search?q=site:thenationalnews.com&hl=en",
     ],
   },
   {
