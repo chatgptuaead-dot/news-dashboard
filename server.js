@@ -214,8 +214,12 @@ async function fetchFeed(source) {
       try {
         const feed = await p.parseURL(feedUrl);
         if (feed.items && feed.items.length > 0) {
-          // Keep the feed's natural order — RSS feeds and Google News
-          // rank by editorial importance, so breaking news comes first
+          // Sort by newest first so breaking news appears at #1
+          feed.items.sort((a, b) => {
+            const dateA = parseDate(a.pubDate || a.isoDate);
+            const dateB = parseDate(b.pubDate || b.isoDate);
+            return dateB - dateA;
+          });
 
           // Reject feeds where all top stories are older than 7 days
           const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
