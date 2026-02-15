@@ -49,9 +49,9 @@ const NEWS_SOURCES = [
     color: "#CC0000",
     icon: "🔴",
     feeds: [
+      "https://news.google.com/rss/search?q=site:cnn.com&hl=en&gl=US&ceid=US:en",
       "http://rss.cnn.com/rss/cnn_topstories.rss",
       "http://rss.cnn.com/rss/cnn_latest.rss",
-      "http://rss.cnn.com/rss/edition.rss",
     ],
   },
   {
@@ -179,6 +179,16 @@ async function fetchFeed(source) {
             const dateB = parseDate(b.pubDate || b.isoDate);
             return dateB - dateA;
           });
+
+          // Reject feeds where the newest story is older than 7 days
+          const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+          const newestDate = parseDate(
+            feed.items[0].pubDate || feed.items[0].isoDate
+          );
+          if (newestDate > 0 && Date.now() - newestDate > SEVEN_DAYS) {
+            continue; // Stale feed, try next one
+          }
+
           items = feed.items.slice(0, 5).map((item) => ({
             title: item.title || "Untitled",
             link: item.link || "#",
