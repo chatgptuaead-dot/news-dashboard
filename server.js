@@ -360,8 +360,9 @@ async function fetchFeed(source) {
           }
         }
 
-        // Final fallback: use screenshot thumbnail service
-        if (!article.image && article.link && article.link !== "#" && !article.link.includes("news.google.com")) {
+        // Final fallback: use screenshot thumbnail service (only for real article URLs)
+        if (!article.image && article.link && article.link !== "#" &&
+            !article.link.includes("google.com") && !article.link.includes("googleusercontent.com")) {
           article.image = "https://image.thum.io/get/width/600/crop/400/noanimate/" + encodeURI(article.link);
         }
       })
@@ -388,6 +389,8 @@ async function fetchFeed(source) {
 async function resolveGoogleNewsArticle(article) {
   if (!article.link || !article.link.includes("news.google.com")) return;
 
+  const originalLink = article.link;
+
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
@@ -404,11 +407,17 @@ async function resolveGoogleNewsArticle(article) {
 
     clearTimeout(timeout);
 
-    // If redirected to real article site
+    // Check if redirect landed on a googleusercontent image URL - use as thumbnail
+    if (res.url && res.url.includes("googleusercontent.com")) {
+      if (!article.image) article.image = res.url;
+      // Keep original Google News link (will redirect in browser)
+      return;
+    }
+
+    // If redirected to real article site (not google)
     if (
       res.url &&
       !res.url.includes("google.com") &&
-      !res.url.includes("googleusercontent.com") &&
       !res.url.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i)
     ) {
       article.link = res.url;
@@ -420,7 +429,7 @@ async function resolveGoogleNewsArticle(article) {
         ) || html.match(
           /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i
         );
-        if (ogImg) article.image = ogImg[1];
+        if (ogImg && !isGenericImage(ogImg[1])) article.image = ogImg[1];
       }
       return;
     }
@@ -428,25 +437,25 @@ async function resolveGoogleNewsArticle(article) {
     // Parse the Google News page for the real URL and images
     const html = await res.text();
 
-    // Try to find the real article URL
+    // Try to find the real article URL (exclude google domains AND googleusercontent)
     const urlPatterns = [
       /data-n-au=["'](https?:\/\/[^"']+)["']/,
-      /href=["'](https?:\/\/(?!(?:news|accounts|support|consent|play)\.google)[^"']+)["']/,
+      /href=["'](https?:\/\/(?!(?:news|accounts|support|consent|play|lh\d)\.google)[^"']+)["']/,
     ];
 
     for (const pattern of urlPatterns) {
       const match = html.match(pattern);
-      if (match && !match[1].includes("google.com")) {
+      if (match && !match[1].includes("google.com") && !match[1].includes("googleusercontent.com")) {
         article.link = match[1];
         break;
       }
     }
 
-    // Extract any image (thumbnail, preview) from the Google News page
+    // Extract thumbnail images from the Google News page
     if (!article.image) {
       const imgPatterns = [
-        /src=["'](https?:\/\/[^"']*(?:googleusercontent|gstatic)[^"']*\.(?:jpg|jpeg|png|webp)[^"']*)["']/i,
         /src=["'](https?:\/\/lh\d*\.googleusercontent\.com[^"']+)["']/i,
+        /src=["'](https?:\/\/[^"']*(?:googleusercontent|gstatic)[^"']*\.(?:jpg|jpeg|png|webp)[^"']*)["']/i,
         /srcset=["']([^"'\s]+)/i,
       ];
       for (const pat of imgPatterns) {
@@ -458,66 +467,97 @@ async function resolveGoogleNewsArticle(article) {
       }
     }
   } catch {
-    // Ignore errors
+    // Keep original Google News link on error
   }
 }
 
-// Fetch og:image from an article's page
+// Fetch og:image from an article's page using got-scraping (bypasses bot detection)
+let gotScrapingModule = null;
+async function getGotScraping() {
+  if (!gotScrapingModule) {
+    try {
+      gotScrapingModule = await import('got-scraping');
+    } catch {
+      gotScrapingModule = false;
+    }
+  }
+  return gotScrapingModule;
+}
+
 async function fetchOgImage(url) {
-  // Try with different user agents for sites that block bots
+  // Skip google URLs
+  if (url.includes("google.com") || url.includes("googleusercontent.com")) return null;
+
+  // Try got-scraping first (bypasses TLS fingerprint detection)
+  const got = await getGotScraping();
+  if (got && got.gotScraping) {
+    try {
+      const res = await got.gotScraping({
+        url,
+        headerGeneratorOptions: { browsers: ['chrome'], operatingSystems: ['macos'] },
+        timeout: { request: 8000 },
+        followRedirect: true,
+      });
+      if (res.statusCode >= 200 && res.statusCode < 400) {
+        const html = res.body.substring(0, 80000);
+        const img = extractOgFromHtml(html);
+        if (img) return img;
+      }
+    } catch {}
+  }
+
+  // Fallback: try with different user agents
   const userAgents = [
+    "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
     "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
   ];
 
   for (const ua of userAgents) {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
-
       const res = await fetch(url, {
         signal: controller.signal,
-        headers: {
-          "User-Agent": ua,
-          Accept: "text/html,application/xhtml+xml",
-        },
+        headers: { "User-Agent": ua, Accept: "text/html,application/xhtml+xml" },
         redirect: "follow",
       });
-
       clearTimeout(timeout);
-
       if (!res.ok) continue;
-
       const html = (await res.text()).substring(0, 60000);
-
-      // Try og:image (both attribute orders)
-      const ogMatch = html.match(
-        /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i
-      ) || html.match(
-        /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i
-      );
-      if (ogMatch && !isGenericImage(ogMatch[1])) return ogMatch[1];
-
-      // Try twitter:image
-      const twMatch = html.match(
-        /<meta[^>]+(?:name|property)=["']twitter:image(?::src)?["'][^>]+content=["']([^"']+)["']/i
-      ) || html.match(
-        /<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["']twitter:image(?::src)?["']/i
-      );
-      if (twMatch && !isGenericImage(twMatch[1])) return twMatch[1];
-
-      // Try first substantial image
-      const imgMatch = html.match(
-        /<img[^>]+src=["'](https?:\/\/[^"']+(?:\.jpg|\.jpeg|\.png|\.webp)[^"']*)["']/i
-      );
-      if (imgMatch && !isGenericImage(imgMatch[1])) return imgMatch[1];
-
+      const img = extractOgFromHtml(html);
+      if (img) return img;
       return null;
     } catch {
       continue;
     }
   }
+  return null;
+}
+
+function extractOgFromHtml(html) {
+  // Try og:image
+  const ogMatch = html.match(
+    /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i
+  ) || html.match(
+    /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i
+  );
+  if (ogMatch && !isGenericImage(ogMatch[1])) return ogMatch[1];
+
+  // Try twitter:image
+  const twMatch = html.match(
+    /<meta[^>]+(?:name|property)=["']twitter:image(?::src)?["'][^>]+content=["']([^"']+)["']/i
+  ) || html.match(
+    /<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["']twitter:image(?::src)?["']/i
+  );
+  if (twMatch && !isGenericImage(twMatch[1])) return twMatch[1];
+
+  // Try first substantial image
+  const imgMatch = html.match(
+    /<img[^>]+src=["'](https?:\/\/[^"']+(?:\.jpg|\.jpeg|\.png|\.webp)[^"']*)["']/i
+  );
+  if (imgMatch && !isGenericImage(imgMatch[1])) return imgMatch[1];
+
   return null;
 }
 
