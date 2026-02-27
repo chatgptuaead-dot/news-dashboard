@@ -272,6 +272,22 @@ async function fetchFeed(source) {
             pubDate: item.pubDate || item.isoDate || null,
             image: extractImage(item),
           }));
+
+          // Resolve Google News URLs and fetch og:image for missing photos
+          await Promise.allSettled(
+            items.map(async (article) => {
+              // Try to resolve Google News links to real article URLs
+              await resolveGoogleNewsArticle(article);
+
+              // Fetch og:image if no image from RSS
+              if (!article.image && article.link && article.link !== "#") {
+                if (!article.link.includes("news.google.com")) {
+                  article.image = await fetchOgImage(article.link);
+                }
+              }
+            })
+          );
+
           break;
         }
       } catch (err) {
@@ -293,6 +309,152 @@ async function fetchFeed(source) {
 
   cache.set(cacheKey, { data: result, timestamp: Date.now() });
   return result;
+}
+
+// For Google News sourced articles, try to find the real article
+// by searching the publisher's site for the article title
+async function resolveGoogleNewsArticle(article) {
+  if (!article.link.includes("news.google.com")) return;
+
+  // Clean title (remove "- Source Name" suffix that Google News adds)
+  const cleanTitle = (article.title || "")
+    .replace(/\s*[-–|]\s*[^-–|]+$/, "")
+    .trim();
+
+  if (!cleanTitle) return;
+
+  // Try to fetch the Google News redirect page to get the real URL
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+
+    const res = await fetch(article.link, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        Accept: "text/html",
+      },
+      redirect: "follow",
+    });
+
+    clearTimeout(timeout);
+
+    // If we ended up on the real article site (not google, not an image)
+    if (
+      res.url &&
+      !res.url.includes("google.com") &&
+      !res.url.includes("googleusercontent.com") &&
+      !res.url.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i)
+    ) {
+      article.link = res.url;
+      return;
+    }
+
+    // If we got redirected to a Google image, use it as the article thumbnail
+    if (
+      res.url &&
+      (res.url.includes("googleusercontent.com") ||
+        res.url.match(/\.(jpg|jpeg|png|webp)$/i))
+    ) {
+      if (!article.image) {
+        article.image = res.url;
+      }
+    }
+
+    // Parse the consent/redirect page for the real URL
+    const html = await res.text();
+    const urlPatterns = [
+      /data-n-au=["'](https?:\/\/[^"']+)["']/,
+      /href=["'](https?:\/\/(?!(?:news|accounts|support|consent)\.google)[^"']+)["']/,
+    ];
+
+    for (const pattern of urlPatterns) {
+      const match = html.match(pattern);
+      if (match && !match[1].includes("google.com")) {
+        article.link = match[1];
+        return;
+      }
+    }
+
+    // Try to extract image from the page if we still don't have one
+    if (!article.image) {
+      const imgMatch = html.match(
+        /src=["'](https?:\/\/[^"']*(?:googleusercontent|gstatic)[^"']*)["']/i
+      );
+      if (imgMatch) article.image = imgMatch[1];
+    }
+  } catch {
+    // Ignore errors
+  }
+}
+
+// Fetch og:image from an article's page
+async function fetchOgImage(url) {
+  try {
+    // First resolve Google News redirects
+    const actualUrl = await resolveUrl(url);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+
+    const res = await fetch(actualUrl, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        Accept: "text/html",
+      },
+      redirect: "follow",
+    });
+
+    clearTimeout(timeout);
+
+    if (!res.ok) return null;
+
+    // Only read the first 60KB to find meta tags in <head>
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let html = "";
+    let bytesRead = 0;
+    const MAX_BYTES = 60000;
+
+    while (bytesRead < MAX_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      html += decoder.decode(value, { stream: true });
+      bytesRead += value.length;
+      if (html.includes("</head>")) break;
+    }
+
+    reader.cancel();
+
+    // Try og:image (both attribute orders)
+    const ogMatch = html.match(
+      /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i
+    ) || html.match(
+      /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i
+    );
+    if (ogMatch) return ogMatch[1];
+
+    // Try twitter:image (both attribute orders)
+    const twMatch = html.match(
+      /<meta[^>]+(?:name|property)=["']twitter:image(?::src)?["'][^>]+content=["']([^"']+)["']/i
+    ) || html.match(
+      /<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["']twitter:image(?::src)?["']/i
+    );
+    if (twMatch) return twMatch[1];
+
+    // Try any large image in the first part of the page
+    const imgMatch = html.match(
+      /<img[^>]+src=["'](https?:\/\/[^"']+(?:\.jpg|\.jpeg|\.png|\.webp)[^"']*)["']/i
+    );
+    if (imgMatch) return imgMatch[1];
+
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function parseDate(dateStr) {

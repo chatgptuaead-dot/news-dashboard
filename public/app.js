@@ -167,9 +167,19 @@ function articleCard(article, index, color, sourceIcon) {
   const date = article.pubDate ? formatDate(article.pubDate) : "";
   const summary = article.summary || "No summary available.";
 
+  // Get first letter of title for placeholder
+  const firstChar = (article.title || "N")[0].toUpperCase();
+
   const imageHtml = article.image
-    ? `<img class="article-image" src="${escapeAttr(article.image)}" alt="" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'article-image-placeholder\\'>${sourceIcon}</div>'">`
-    : `<div class="article-image-placeholder">${sourceIcon}</div>`;
+    ? `<img class="article-image" src="${escapeAttr(article.image)}" alt="" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+       <div class="article-image-placeholder" style="display:none; --ph-color:${color}">
+         <span class="ph-icon">${sourceIcon}</span>
+         <span class="ph-letter">${firstChar}</span>
+       </div>`
+    : `<div class="article-image-placeholder" style="--ph-color:${color}">
+         <span class="ph-icon">${sourceIcon}</span>
+         <span class="ph-letter">${firstChar}</span>
+       </div>`;
 
   return `
     <a href="${escapeAttr(article.link)}" target="_blank" rel="noopener noreferrer"
