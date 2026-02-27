@@ -185,8 +185,12 @@ function articleCard(article, index, color, sourceIcon) {
     : `<span class="ph-icon">${sourceIcon}</span>
        <span class="ph-letter">${firstChar}</span>`;
 
+  const showPlaceholder = "this.style.display='none'; this.nextElementSibling.style.display='flex';";
+
   const imageHtml = article.image
-    ? `<img class="article-image" src="${escapeAttr(article.image)}" alt="" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+    ? `<img class="article-image" src="${escapeAttr(article.image)}" alt="" loading="lazy"
+         onerror="${escapeAttr(showPlaceholder)}"
+         onload="if(this.naturalWidth<10||this.naturalHeight<10){${showPlaceholder}}">
        <div class="article-image-placeholder" style="display:none; --ph-color:${color}">
          ${placeholderInner}
        </div>`
@@ -273,3 +277,19 @@ function escapeAttr(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }
+
+// Catch images that fail to load or load as tiny/blank - show placeholder instead
+function checkBrokenImages() {
+  document.querySelectorAll(".article-image").forEach((img) => {
+    if (img.complete) {
+      if (!img.naturalWidth || img.naturalWidth < 10 || !img.naturalHeight || img.naturalHeight < 10) {
+        img.style.display = "none";
+        const ph = img.nextElementSibling;
+        if (ph) ph.style.display = "flex";
+      }
+    }
+  });
+}
+// Run after render and periodically to catch late failures
+setTimeout(checkBrokenImages, 3000);
+setTimeout(checkBrokenImages, 8000);

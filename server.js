@@ -4,7 +4,7 @@ const RSSParser = require("rss-parser");
 
 const app = express();
 const parser = new RSSParser({
-  timeout: 10000,
+  timeout: 15000,
   headers: {
     "User-Agent":
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -21,7 +21,7 @@ const parser = new RSSParser({
 });
 
 const parserSimple = new RSSParser({
-  timeout: 10000,
+  timeout: 15000,
   headers: {
     "User-Agent":
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -286,7 +286,7 @@ const SOCIAL_SOURCES = [
 const cache = new Map();
 const CACHE_TTL = 3 * 60 * 1000;
 
-async function fetchFeed(source) {
+async function fetchFeed(source, retryCount = 0) {
   const cacheKey = source.id;
   const cached = cache.get(cacheKey);
 
@@ -360,15 +360,17 @@ async function fetchFeed(source) {
           }
         }
 
-        // Final fallback: use screenshot thumbnail service (only for real article URLs)
-        if (!article.image && article.link && article.link !== "#" &&
-            !article.link.includes("google.com") && !article.link.includes("googleusercontent.com")) {
-          article.image = "https://image.thum.io/get/width/600/crop/400/noanimate/" + encodeURI(article.link);
-        }
+        // No thum.io - it's unreliable. Placeholder will be shown client-side.
       })
     );
 
     if (items.length > 0) break;
+  }
+
+  // Retry once if no articles found
+  if (items.length === 0 && retryCount < 1) {
+    await new Promise(r => setTimeout(r, 2000));
+    return fetchFeed(source, retryCount + 1);
   }
 
   const result = {
