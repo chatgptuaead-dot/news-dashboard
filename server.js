@@ -29,6 +29,61 @@ const parserSimple = new RSSParser({
   },
 });
 
+// Lenient XML fetch + regex parser for feeds that rss-parser can't handle
+async function fetchFeedRaw(feedUrl) {
+  try {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch(feedUrl, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        Accept: "application/rss+xml, application/xml, text/xml, */*",
+      },
+      redirect: "follow",
+    });
+    clearTimeout(t);
+    if (!res.ok) return null;
+    const xml = await res.text();
+
+    // Extract items with regex (lenient parsing)
+    const items = [];
+    const itemRegex = /<item[\s>]([\s\S]*?)<\/item>/gi;
+    let match;
+    while ((match = itemRegex.exec(xml)) !== null && items.length < 10) {
+      const block = match[1];
+      const title = block.match(/<title[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i);
+      const link = block.match(/<link[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/link>/i);
+      const desc = block.match(/<description[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/i);
+      const pubDate = block.match(/<pubDate[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/pubDate>/i);
+      const encUrl = block.match(/<enclosure[^>]+url=["']([^"']+)["']/i);
+      const mediaUrl = block.match(/<media:content[^>]+url=["']([^"']+)["']/i);
+      const mediaThumb = block.match(/<media:thumbnail[^>]+url=["']([^"']+)["']/i);
+      const imgInDesc = (desc && desc[1] || '').match(/<img[^>]+src=["']([^"']+)["']/i);
+      const contentEncoded = block.match(/<content:encoded[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/content:encoded>/i);
+
+      if (title) {
+        const item = {
+          title: stripHtml(title[1]),
+          link: (link && link[1] || '').trim(),
+          description: desc ? desc[1] : '',
+          pubDate: pubDate ? pubDate[1].trim() : null,
+        };
+        // Attach image
+        if (encUrl) item.enclosure = { url: encUrl[1] };
+        if (mediaUrl) item._mediaContentUrl = mediaUrl[1];
+        if (mediaThumb) item._mediaThumbnailUrl = mediaThumb[1];
+        if (imgInDesc) item._descImgUrl = imgInDesc[1];
+        if (contentEncoded) item['content:encoded'] = contentEncoded[1];
+        items.push(item);
+      }
+    }
+    return items.length > 0 ? items : null;
+  } catch {
+    return null;
+  }
+}
+
 const PORT = process.env.PORT || 3456;
 
 // News outlet configurations
@@ -41,6 +96,7 @@ const NEWS_SOURCES = [
     feeds: [
       "https://www.wam.ae/en/rss/all",
       "https://wam.ae/en/rss/all",
+      "https://www.wam.ae/en/rss",
       "https://news.google.com/rss/search?q=site:wam.ae&hl=en",
     ],
   },
@@ -50,7 +106,6 @@ const NEWS_SOURCES = [
     color: "#1B4F72",
     icon: "📰",
     feeds: [
-      "https://www.aletihad.ae/rss",
       "https://news.google.com/rss/search?q=site:aletihad.ae&hl=ar",
     ],
   },
@@ -60,7 +115,6 @@ const NEWS_SOURCES = [
     color: "#C0392B",
     icon: "📜",
     feeds: [
-      "https://www.alkhaleej.ae/rss",
       "https://news.google.com/rss/search?q=site:alkhaleej.ae&hl=ar",
     ],
   },
@@ -81,7 +135,6 @@ const NEWS_SOURCES = [
     color: "#2E86C1",
     icon: "🗞️",
     feeds: [
-      "https://www.albayan.ae/rss",
       "https://news.google.com/rss/search?q=site:albayan.ae&hl=ar",
     ],
   },
@@ -91,9 +144,8 @@ const NEWS_SOURCES = [
     color: "#F47920",
     icon: "🌐",
     feeds: [
-      "https://english.alarabiya.net/tools/rss",
-      "https://www.alarabiya.net/feed/rss2/ar.xml",
       "https://news.google.com/rss/search?q=site:alarabiya.net&hl=en",
+      "https://news.google.com/rss/search?q=site:alarabiya.net&hl=ar",
     ],
   },
   {
@@ -103,6 +155,7 @@ const NEWS_SOURCES = [
     icon: "🌍",
     feeds: [
       "https://www.skynewsarabia.com/web/rss",
+      "https://www.skynewsarabia.com/rss",
       "https://news.google.com/rss/search?q=site:skynewsarabia.com+breaking&hl=ar",
       "https://news.google.com/rss/search?q=site:skynewsarabia.com&hl=ar",
     ],
@@ -135,8 +188,7 @@ const NEWS_SOURCES = [
     color: "#CC0000",
     icon: "🔴",
     feeds: [
-      "http://rss.cnn.com/rss/edition.rss",
-      "https://news.google.com/rss/search?q=site:edition.cnn.com&hl=en",
+      "https://news.google.com/rss/search?q=site:edition.cnn.com+OR+site:cnn.com&hl=en",
       "https://news.google.com/rss/search?q=site:cnn.com&hl=en&gl=US&ceid=US:en",
     ],
   },
@@ -156,9 +208,7 @@ const NEWS_SOURCES = [
     color: "#FF8000",
     icon: "⚡",
     feeds: [
-      "https://news.google.com/rss/search?q=site:reuters.com+breaking&hl=en",
       "https://news.google.com/rss/search?q=site:reuters.com&hl=en",
-      "https://www.reutersagency.com/feed/?taxonomy=best-sectors&post_type=best",
     ],
   },
   {
@@ -246,54 +296,71 @@ async function fetchFeed(source) {
   let items = [];
 
   for (const feedUrl of source.feeds) {
+    // Try rss-parser (enriched then simple), then raw regex parser
+    let feedItems = null;
+    let usedRaw = false;
+
     for (const p of [parser, parserSimple]) {
       try {
         const feed = await p.parseURL(feedUrl);
         if (feed.items && feed.items.length > 0) {
-          feed.items.sort((a, b) => {
-            const dateA = parseDate(a.pubDate || a.isoDate);
-            const dateB = parseDate(b.pubDate || b.isoDate);
-            return dateB - dateA;
-          });
-
-          const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
-          const topDates = feed.items.slice(0, 5).map((item) =>
-            parseDate(item.pubDate || item.isoDate)
-          );
-          const newestDate = Math.max(...topDates);
-          if (newestDate > 0 && Date.now() - newestDate > SEVEN_DAYS) {
-            continue;
-          }
-
-          items = feed.items.slice(0, 5).map((item) => ({
-            title: item.title || "Untitled",
-            link: item.link || "#",
-            summary: extractSummary(item),
-            pubDate: item.pubDate || item.isoDate || null,
-            image: extractImage(item),
-          }));
-
-          // Resolve Google News URLs and fetch og:image for missing photos
-          await Promise.allSettled(
-            items.map(async (article) => {
-              // Try to resolve Google News links to real article URLs
-              await resolveGoogleNewsArticle(article);
-
-              // Fetch og:image if no image from RSS
-              if (!article.image && article.link && article.link !== "#") {
-                if (!article.link.includes("news.google.com")) {
-                  article.image = await fetchOgImage(article.link);
-                }
-              }
-            })
-          );
-
+          feedItems = feed.items;
           break;
         }
-      } catch (err) {
+      } catch {
         continue;
       }
     }
+
+    // Fallback: raw XML fetch with lenient regex parsing
+    if (!feedItems) {
+      const rawItems = await fetchFeedRaw(feedUrl);
+      if (rawItems) {
+        feedItems = rawItems;
+        usedRaw = true;
+      }
+    }
+
+    if (!feedItems || feedItems.length === 0) continue;
+
+    feedItems.sort((a, b) => {
+      const dateA = parseDate(a.pubDate || a.isoDate);
+      const dateB = parseDate(b.pubDate || b.isoDate);
+      return dateB - dateA;
+    });
+
+    const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+    const topDates = feedItems.slice(0, 5).map((item) =>
+      parseDate(item.pubDate || item.isoDate)
+    );
+    const newestDate = Math.max(...topDates);
+    if (newestDate > 0 && Date.now() - newestDate > SEVEN_DAYS) {
+      continue;
+    }
+
+    items = feedItems.slice(0, 5).map((item) => ({
+      title: item.title || "Untitled",
+      link: item.link || "#",
+      summary: extractSummary(item),
+      pubDate: item.pubDate || item.isoDate || null,
+      image: extractImage(item),
+    }));
+
+    // Resolve Google News URLs and fetch og:image for missing photos
+    await Promise.allSettled(
+      items.map(async (article) => {
+        // Try to resolve Google News links to real article URLs
+        await resolveGoogleNewsArticle(article);
+
+        // Fetch og:image if no image from RSS
+        if (!article.image && article.link && article.link !== "#") {
+          if (!article.link.includes("news.google.com")) {
+            article.image = await fetchOgImage(article.link);
+          }
+        }
+      })
+    );
+
     if (items.length > 0) break;
   }
 
@@ -312,35 +379,26 @@ async function fetchFeed(source) {
 }
 
 // For Google News sourced articles, try to find the real article
-// by searching the publisher's site for the article title
 async function resolveGoogleNewsArticle(article) {
-  if (!article.link.includes("news.google.com")) return;
+  if (!article.link || !article.link.includes("news.google.com")) return;
 
-  // Clean title (remove "- Source Name" suffix that Google News adds)
-  const cleanTitle = (article.title || "")
-    .replace(/\s*[-–|]\s*[^-–|]+$/, "")
-    .trim();
-
-  if (!cleanTitle) return;
-
-  // Try to fetch the Google News redirect page to get the real URL
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
+    const timeout = setTimeout(() => controller.abort(), 8000);
 
     const res = await fetch(article.link, {
       signal: controller.signal,
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        Accept: "text/html",
+        Accept: "text/html,application/xhtml+xml",
       },
       redirect: "follow",
     });
 
     clearTimeout(timeout);
 
-    // If we ended up on the real article site (not google, not an image)
+    // If redirected to real article site
     if (
       res.url &&
       !res.url.includes("google.com") &&
@@ -348,41 +406,50 @@ async function resolveGoogleNewsArticle(article) {
       !res.url.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i)
     ) {
       article.link = res.url;
+      // Try og:image from the real article page
+      if (!article.image) {
+        const html = (await res.text()).substring(0, 60000);
+        const ogImg = html.match(
+          /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i
+        ) || html.match(
+          /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i
+        );
+        if (ogImg) article.image = ogImg[1];
+      }
       return;
     }
 
-    // If we got redirected to a Google image, use it as the article thumbnail
-    if (
-      res.url &&
-      (res.url.includes("googleusercontent.com") ||
-        res.url.match(/\.(jpg|jpeg|png|webp)$/i))
-    ) {
-      if (!article.image) {
-        article.image = res.url;
-      }
-    }
-
-    // Parse the consent/redirect page for the real URL
+    // Parse the Google News page for the real URL and images
     const html = await res.text();
+
+    // Try to find the real article URL
     const urlPatterns = [
       /data-n-au=["'](https?:\/\/[^"']+)["']/,
-      /href=["'](https?:\/\/(?!(?:news|accounts|support|consent)\.google)[^"']+)["']/,
+      /href=["'](https?:\/\/(?!(?:news|accounts|support|consent|play)\.google)[^"']+)["']/,
     ];
 
     for (const pattern of urlPatterns) {
       const match = html.match(pattern);
       if (match && !match[1].includes("google.com")) {
         article.link = match[1];
-        return;
+        break;
       }
     }
 
-    // Try to extract image from the page if we still don't have one
+    // Extract any image (thumbnail, preview) from the Google News page
     if (!article.image) {
-      const imgMatch = html.match(
-        /src=["'](https?:\/\/[^"']*(?:googleusercontent|gstatic)[^"']*)["']/i
-      );
-      if (imgMatch) article.image = imgMatch[1];
+      const imgPatterns = [
+        /src=["'](https?:\/\/[^"']*(?:googleusercontent|gstatic)[^"']*\.(?:jpg|jpeg|png|webp)[^"']*)["']/i,
+        /src=["'](https?:\/\/lh\d*\.googleusercontent\.com[^"']+)["']/i,
+        /srcset=["']([^"'\s]+)/i,
+      ];
+      for (const pat of imgPatterns) {
+        const m = html.match(pat);
+        if (m) {
+          article.image = m[1];
+          break;
+        }
+      }
     }
   } catch {
     // Ignore errors
@@ -391,70 +458,77 @@ async function resolveGoogleNewsArticle(article) {
 
 // Fetch og:image from an article's page
 async function fetchOgImage(url) {
-  try {
-    // First resolve Google News redirects
-    const actualUrl = await resolveUrl(url);
+  // Try with different user agents for sites that block bots
+  const userAgents = [
+    "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+  ];
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
+  for (const ua of userAgents) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
 
-    const res = await fetch(actualUrl, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        Accept: "text/html",
-      },
-      redirect: "follow",
-    });
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent": ua,
+          Accept: "text/html,application/xhtml+xml",
+        },
+        redirect: "follow",
+      });
 
-    clearTimeout(timeout);
+      clearTimeout(timeout);
 
-    if (!res.ok) return null;
+      if (!res.ok) continue;
 
-    // Only read the first 60KB to find meta tags in <head>
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let html = "";
-    let bytesRead = 0;
-    const MAX_BYTES = 60000;
+      const html = (await res.text()).substring(0, 60000);
 
-    while (bytesRead < MAX_BYTES) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      html += decoder.decode(value, { stream: true });
-      bytesRead += value.length;
-      if (html.includes("</head>")) break;
+      // Try og:image (both attribute orders)
+      const ogMatch = html.match(
+        /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i
+      ) || html.match(
+        /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i
+      );
+      if (ogMatch && !isGenericImage(ogMatch[1])) return ogMatch[1];
+
+      // Try twitter:image
+      const twMatch = html.match(
+        /<meta[^>]+(?:name|property)=["']twitter:image(?::src)?["'][^>]+content=["']([^"']+)["']/i
+      ) || html.match(
+        /<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["']twitter:image(?::src)?["']/i
+      );
+      if (twMatch && !isGenericImage(twMatch[1])) return twMatch[1];
+
+      // Try first substantial image
+      const imgMatch = html.match(
+        /<img[^>]+src=["'](https?:\/\/[^"']+(?:\.jpg|\.jpeg|\.png|\.webp)[^"']*)["']/i
+      );
+      if (imgMatch && !isGenericImage(imgMatch[1])) return imgMatch[1];
+
+      return null;
+    } catch {
+      continue;
     }
-
-    reader.cancel();
-
-    // Try og:image (both attribute orders)
-    const ogMatch = html.match(
-      /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i
-    ) || html.match(
-      /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i
-    );
-    if (ogMatch) return ogMatch[1];
-
-    // Try twitter:image (both attribute orders)
-    const twMatch = html.match(
-      /<meta[^>]+(?:name|property)=["']twitter:image(?::src)?["'][^>]+content=["']([^"']+)["']/i
-    ) || html.match(
-      /<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["']twitter:image(?::src)?["']/i
-    );
-    if (twMatch) return twMatch[1];
-
-    // Try any large image in the first part of the page
-    const imgMatch = html.match(
-      /<img[^>]+src=["'](https?:\/\/[^"']+(?:\.jpg|\.jpeg|\.png|\.webp)[^"']*)["']/i
-    );
-    if (imgMatch) return imgMatch[1];
-
-    return null;
-  } catch {
-    return null;
   }
+  return null;
+}
+
+// Filter out generic logos/icons that aren't article images
+function isGenericImage(url) {
+  if (!url) return true;
+  const lower = url.toLowerCase();
+  return (
+    lower.includes("logo") ||
+    lower.includes("favicon") ||
+    lower.includes("icon") ||
+    lower.includes("default.jpg") ||
+    lower.includes("share-image") ||
+    lower.includes("placeholder") ||
+    lower.endsWith(".svg") ||
+    lower.includes("brand")
+  );
 }
 
 function parseDate(dateStr) {
@@ -531,7 +605,7 @@ function extractImage(item) {
   // 1. Enclosure
   if (item.enclosure && item.enclosure.url) return item.enclosure.url;
 
-  // 2. media:content
+  // 2. media:content (rss-parser format)
   if (item["media:content"]) {
     const mc = item["media:content"];
     if (mc["$"] && mc["$"].url) return mc["$"].url;
@@ -539,7 +613,7 @@ function extractImage(item) {
     if (Array.isArray(mc) && mc[0] && mc[0]["$"]) return mc[0]["$"].url;
   }
 
-  // 3. media:thumbnail
+  // 3. media:thumbnail (rss-parser format)
   if (item["media:thumbnail"]) {
     const mt = item["media:thumbnail"];
     if (mt["$"] && mt["$"].url) return mt["$"].url;
@@ -553,13 +627,24 @@ function extractImage(item) {
       return mg["media:content"]["$"].url;
   }
 
-  // 5. Extract from content HTML
-  const content =
-    item.content || item["content:encoded"] || item.description || "";
-  const imgMatch = content.match(/<img[^>]+src=["']([^"']+)["']/);
-  if (imgMatch) return imgMatch[1];
+  // 5. Raw-parsed media URLs (from fetchFeedRaw)
+  if (item._mediaContentUrl) return item._mediaContentUrl;
+  if (item._mediaThumbnailUrl) return item._mediaThumbnailUrl;
+  if (item._descImgUrl) return item._descImgUrl;
 
-  // 6. og:image pattern in link (generate a placeholder based on domain)
+  // 6. Extract from content HTML (covers Google News description thumbnails)
+  const fields = [
+    item.content,
+    item["content:encoded"],
+    item.description,
+    item.summary,
+  ];
+  for (const field of fields) {
+    if (!field) continue;
+    const imgMatch = field.match(/<img[^>]+src=["']([^"']+)["']/);
+    if (imgMatch && !imgMatch[1].includes("feedburner")) return imgMatch[1];
+  }
+
   return null;
 }
 

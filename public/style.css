@@ -428,28 +428,53 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--ph-color, #7c6cff) 12%, #111118),
-    color-mix(in srgb, var(--ph-color, #7c6cff) 6%, #0d0d14)
-  );
+  gap: 10px;
+  background:
+    radial-gradient(ellipse at 30% 20%, color-mix(in srgb, var(--ph-color, #7c6cff) 18%, transparent) 0%, transparent 60%),
+    radial-gradient(ellipse at 70% 80%, color-mix(in srgb, var(--ph-color, #7c6cff) 10%, transparent) 0%, transparent 60%),
+    linear-gradient(160deg, #131320 0%, #0e0e18 100%);
   position: relative;
+  overflow: hidden;
+}
+
+.article-image-placeholder::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 20px,
+    color-mix(in srgb, var(--ph-color, #7c6cff) 3%, transparent) 20px,
+    color-mix(in srgb, var(--ph-color, #7c6cff) 3%, transparent) 21px
+  );
 }
 
 .ph-icon {
-  font-size: 28px;
-  opacity: 0.5;
+  font-size: 32px;
+  opacity: 0.6;
+  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.3));
+  z-index: 1;
 }
 
 .ph-letter {
-  font-size: 48px;
+  font-size: 64px;
   font-weight: 800;
-  opacity: 0.08;
+  opacity: 0.06;
   position: absolute;
-  right: 16px;
-  bottom: -4px;
+  right: 12px;
+  bottom: -8px;
   color: var(--ph-color, #7c6cff);
+  line-height: 1;
+}
+
+.ph-favicon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  opacity: 0.7;
+  z-index: 1;
+  filter: drop-shadow(0 1px 4px rgba(0,0,0,0.4));
 }
 
 .article-number {

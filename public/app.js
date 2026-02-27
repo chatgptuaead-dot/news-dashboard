@@ -170,15 +170,28 @@ function articleCard(article, index, color, sourceIcon) {
   // Get first letter of title for placeholder
   const firstChar = (article.title || "N")[0].toUpperCase();
 
+  // Extract domain for favicon
+  let domain = "";
+  try {
+    domain = new URL(article.link).hostname;
+  } catch {}
+  const faviconUrl = domain
+    ? `https://t3.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${domain}&size=64`
+    : "";
+
+  const placeholderInner = faviconUrl
+    ? `<img class="ph-favicon" src="${escapeAttr(faviconUrl)}" alt="" onerror="this.style.display='none'">
+       <span class="ph-letter">${firstChar}</span>`
+    : `<span class="ph-icon">${sourceIcon}</span>
+       <span class="ph-letter">${firstChar}</span>`;
+
   const imageHtml = article.image
     ? `<img class="article-image" src="${escapeAttr(article.image)}" alt="" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
        <div class="article-image-placeholder" style="display:none; --ph-color:${color}">
-         <span class="ph-icon">${sourceIcon}</span>
-         <span class="ph-letter">${firstChar}</span>
+         ${placeholderInner}
        </div>`
     : `<div class="article-image-placeholder" style="--ph-color:${color}">
-         <span class="ph-icon">${sourceIcon}</span>
-         <span class="ph-letter">${firstChar}</span>
+         ${placeholderInner}
        </div>`;
 
   return `
