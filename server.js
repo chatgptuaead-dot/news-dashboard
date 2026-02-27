@@ -244,39 +244,40 @@ const NEWS_SOURCES = [
   },
 ];
 
-// Social media trending topics via RSS proxies
+// Social media trending topics in UAE via RSS proxies
 const SOCIAL_SOURCES = [
   {
     id: "x-trending",
-    name: "Trending on X",
+    name: "Trending on X - UAE",
     color: "#000000",
     icon: "𝕏",
     platform: "x",
     feeds: [
-      "https://news.google.com/rss/search?q=trending+on+X+twitter+today&hl=en&gl=US&ceid=US:en",
-      "https://news.google.com/rss/search?q=%22trending+on+twitter%22+OR+%22viral+tweet%22&hl=en",
+      "https://news.google.com/rss/search?q=UAE+OR+Dubai+OR+%22Abu+Dhabi%22+trending+twitter+OR+X&hl=en&gl=AE&ceid=AE:en",
+      "https://news.google.com/rss/search?q=%22trending+in+UAE%22+OR+%22viral+UAE%22+twitter&hl=en",
     ],
   },
   {
     id: "tiktok-trending",
-    name: "Trending on TikTok",
+    name: "Trending on TikTok - UAE",
     color: "#00F2EA",
     icon: "🎵",
     platform: "tiktok",
     feeds: [
-      "https://news.google.com/rss/search?q=trending+on+tiktok+viral&hl=en&gl=US&ceid=US:en",
-      "https://news.google.com/rss/search?q=%22tiktok+trend%22+OR+%22viral+tiktok%22&hl=en",
+      "https://news.google.com/rss/search?q=tiktok+Dubai+OR+UAE+OR+%22Abu+Dhabi%22&hl=en&gl=AE&ceid=AE:en",
+      "https://news.google.com/rss/search?q=tiktok+trending+Dubai+OR+UAE+viral&hl=en",
+      "https://news.google.com/rss/search?q=tiktok+%22United+Arab+Emirates%22+OR+Dubai&hl=en",
     ],
   },
   {
     id: "instagram-trending",
-    name: "Trending on Instagram",
+    name: "Trending on Instagram - UAE",
     color: "#E1306C",
     icon: "📸",
     platform: "instagram",
     feeds: [
-      "https://news.google.com/rss/search?q=trending+on+instagram+viral&hl=en&gl=US&ceid=US:en",
-      "https://news.google.com/rss/search?q=%22instagram+trend%22+OR+%22viral+instagram%22&hl=en",
+      "https://news.google.com/rss/search?q=UAE+OR+Dubai+OR+%22Abu+Dhabi%22+instagram+trending+OR+viral&hl=en&gl=AE&ceid=AE:en",
+      "https://news.google.com/rss/search?q=%22instagram+UAE%22+OR+%22instagram+Dubai%22+trending&hl=en",
     ],
   },
 ];
@@ -357,6 +358,11 @@ async function fetchFeed(source) {
           if (!article.link.includes("news.google.com")) {
             article.image = await fetchOgImage(article.link);
           }
+        }
+
+        // Final fallback: use screenshot thumbnail service
+        if (!article.image && article.link && article.link !== "#" && !article.link.includes("news.google.com")) {
+          article.image = "https://image.thum.io/get/width/600/crop/400/noanimate/" + encodeURI(article.link);
         }
       })
     );

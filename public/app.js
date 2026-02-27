@@ -120,7 +120,7 @@ function renderNews() {
         divider.innerHTML = `
           <div class="section-divider-inner">
             <div class="section-divider-line"></div>
-            <span class="section-divider-label">Social Trending</span>
+            <span class="section-divider-label">Social Trending - UAE</span>
             <div class="section-divider-line"></div>
           </div>
         `;
