@@ -7,7 +7,7 @@ const parser = new RSSParser({
   timeout: 10000,
   headers: {
     "User-Agent":
-      "Mozilla/5.0 (compatible; NewsDashboard/1.0; +http://localhost)",
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     Accept: "application/rss+xml, application/xml, text/xml, */*",
   },
   customFields: {
@@ -15,23 +15,23 @@ const parser = new RSSParser({
       ["content:encoded", "content:encoded"],
       ["media:content", "media:content"],
       ["media:thumbnail", "media:thumbnail"],
+      ["media:group", "media:group"],
     ],
   },
 });
 
-// Separate parser without customFields as fallback for feeds that choke on them
 const parserSimple = new RSSParser({
   timeout: 10000,
   headers: {
     "User-Agent":
-      "Mozilla/5.0 (compatible; NewsDashboard/1.0; +http://localhost)",
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     Accept: "application/rss+xml, application/xml, text/xml, */*",
   },
 });
 
 const PORT = process.env.PORT || 3456;
 
-// News outlet configurations with RSS feed URLs
+// News outlet configurations
 const NEWS_SOURCES = [
   {
     id: "wam",
@@ -194,9 +194,46 @@ const NEWS_SOURCES = [
   },
 ];
 
-// Cache to avoid hammering RSS feeds
+// Social media trending topics via RSS proxies
+const SOCIAL_SOURCES = [
+  {
+    id: "x-trending",
+    name: "Trending on X",
+    color: "#000000",
+    icon: "𝕏",
+    platform: "x",
+    feeds: [
+      "https://news.google.com/rss/search?q=trending+on+X+twitter+today&hl=en&gl=US&ceid=US:en",
+      "https://news.google.com/rss/search?q=%22trending+on+twitter%22+OR+%22viral+tweet%22&hl=en",
+    ],
+  },
+  {
+    id: "tiktok-trending",
+    name: "Trending on TikTok",
+    color: "#00F2EA",
+    icon: "🎵",
+    platform: "tiktok",
+    feeds: [
+      "https://news.google.com/rss/search?q=trending+on+tiktok+viral&hl=en&gl=US&ceid=US:en",
+      "https://news.google.com/rss/search?q=%22tiktok+trend%22+OR+%22viral+tiktok%22&hl=en",
+    ],
+  },
+  {
+    id: "instagram-trending",
+    name: "Trending on Instagram",
+    color: "#E1306C",
+    icon: "📸",
+    platform: "instagram",
+    feeds: [
+      "https://news.google.com/rss/search?q=trending+on+instagram+viral&hl=en&gl=US&ceid=US:en",
+      "https://news.google.com/rss/search?q=%22instagram+trend%22+OR+%22viral+instagram%22&hl=en",
+    ],
+  },
+];
+
+// Cache
 const cache = new Map();
-const CACHE_TTL = 3 * 60 * 1000; // 3 minutes
+const CACHE_TTL = 3 * 60 * 1000;
 
 async function fetchFeed(source) {
   const cacheKey = source.id;
@@ -209,26 +246,23 @@ async function fetchFeed(source) {
   let items = [];
 
   for (const feedUrl of source.feeds) {
-    // Try both parsers — the enriched one first, then the simple fallback
     for (const p of [parser, parserSimple]) {
       try {
         const feed = await p.parseURL(feedUrl);
         if (feed.items && feed.items.length > 0) {
-          // Sort by newest first so breaking news appears at #1
           feed.items.sort((a, b) => {
             const dateA = parseDate(a.pubDate || a.isoDate);
             const dateB = parseDate(b.pubDate || b.isoDate);
             return dateB - dateA;
           });
 
-          // Reject feeds where all top stories are older than 7 days
           const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
           const topDates = feed.items.slice(0, 5).map((item) =>
             parseDate(item.pubDate || item.isoDate)
           );
           const newestDate = Math.max(...topDates);
           if (newestDate > 0 && Date.now() - newestDate > SEVEN_DAYS) {
-            continue; // Stale feed, try next one
+            continue;
           }
 
           items = feed.items.slice(0, 5).map((item) => ({
@@ -244,7 +278,7 @@ async function fetchFeed(source) {
         continue;
       }
     }
-    if (items.length > 0) break; // Got items, stop trying other feed URLs
+    if (items.length > 0) break;
   }
 
   const result = {
@@ -252,6 +286,7 @@ async function fetchFeed(source) {
     name: source.name,
     color: source.color,
     icon: source.icon,
+    platform: source.platform || null,
     articles: items,
     lastUpdated: new Date().toISOString(),
   };
@@ -283,7 +318,6 @@ function stripHtml(text) {
 }
 
 function extractSummary(item) {
-  // Try multiple fields in order of detail richness
   const candidates = [
     item["content:encoded"],
     item.content,
@@ -298,18 +332,15 @@ function extractSummary(item) {
   for (const raw of candidates) {
     if (!raw) continue;
     const cleaned = stripHtml(raw);
-    // Pick the longest meaningful summary we can find
     if (cleaned.length > best.length) {
       best = cleaned;
     }
   }
 
-  // If the title leaked into the summary, strip it out
   if (best && item.title) {
     const titleClean = item.title.trim();
     if (best.startsWith(titleClean)) {
       best = best.slice(titleClean.length).trim();
-      // Remove leading punctuation after stripping title
       best = best.replace(/^[\s\-–—:|,]+/, "").trim();
     }
   }
@@ -318,9 +349,7 @@ function extractSummary(item) {
     return "Tap to read the full article.";
   }
 
-  // Allow up to 450 chars for more detailed summaries
   if (best.length > 450) {
-    // Cut at last sentence boundary within limit
     const truncated = best.substring(0, 450);
     const lastPeriod = truncated.lastIndexOf(".");
     const lastQuestion = truncated.lastIndexOf("?");
@@ -337,35 +366,56 @@ function extractSummary(item) {
 }
 
 function extractImage(item) {
-  // Try common RSS image locations
+  // 1. Enclosure
   if (item.enclosure && item.enclosure.url) return item.enclosure.url;
-  if (item["media:content"] && item["media:content"]["$"])
-    return item["media:content"]["$"].url;
-  if (item["media:thumbnail"] && item["media:thumbnail"]["$"])
-    return item["media:thumbnail"]["$"].url;
 
-  // Try to extract from content
-  const content = item.content || item["content:encoded"] || "";
+  // 2. media:content
+  if (item["media:content"]) {
+    const mc = item["media:content"];
+    if (mc["$"] && mc["$"].url) return mc["$"].url;
+    if (typeof mc === "string") return mc;
+    if (Array.isArray(mc) && mc[0] && mc[0]["$"]) return mc[0]["$"].url;
+  }
+
+  // 3. media:thumbnail
+  if (item["media:thumbnail"]) {
+    const mt = item["media:thumbnail"];
+    if (mt["$"] && mt["$"].url) return mt["$"].url;
+    if (typeof mt === "string") return mt;
+  }
+
+  // 4. media:group
+  if (item["media:group"]) {
+    const mg = item["media:group"];
+    if (mg["media:content"] && mg["media:content"]["$"])
+      return mg["media:content"]["$"].url;
+  }
+
+  // 5. Extract from content HTML
+  const content =
+    item.content || item["content:encoded"] || item.description || "";
   const imgMatch = content.match(/<img[^>]+src=["']([^"']+)["']/);
   if (imgMatch) return imgMatch[1];
 
+  // 6. og:image pattern in link (generate a placeholder based on domain)
   return null;
 }
 
-// Disable browser caching so users always get fresh files
+// Disable browser caching
 app.use((req, res, next) => {
-  res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
   res.set("Pragma", "no-cache");
   res.set("Expires", "0");
   next();
 });
 
-// Serve static files
 app.use(express.static(path.join(__dirname, "public")));
 
 // API: Get all news
 app.get("/api/news", async (req, res) => {
-  // If ?refresh=true, clear the cache to force fresh fetches
   if (req.query.refresh === "true") {
     cache.clear();
   }
@@ -389,9 +439,39 @@ app.get("/api/news", async (req, res) => {
   }
 });
 
+// API: Get social trending
+app.get("/api/social", async (req, res) => {
+  if (req.query.refresh === "true") {
+    // Clear social cache entries
+    SOCIAL_SOURCES.forEach((s) => cache.delete(s.id));
+  }
+
+  try {
+    const results = await Promise.allSettled(
+      SOCIAL_SOURCES.map((source) => fetchFeed(source))
+    );
+
+    const social = results
+      .filter((r) => r.status === "fulfilled")
+      .map((r) => r.value);
+
+    res.json({
+      success: true,
+      data: social,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to fetch social trends" });
+  }
+});
+
 // API: Get news for a specific source
 app.get("/api/news/:sourceId", async (req, res) => {
-  const source = NEWS_SOURCES.find((s) => s.id === req.params.sourceId);
+  const source =
+    NEWS_SOURCES.find((s) => s.id === req.params.sourceId) ||
+    SOCIAL_SOURCES.find((s) => s.id === req.params.sourceId);
   if (!source) {
     return res.status(404).json({ success: false, error: "Source not found" });
   }
@@ -402,19 +482,6 @@ app.get("/api/news/:sourceId", async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, error: "Failed to fetch feed" });
   }
-});
-
-// API: List available sources
-app.get("/api/sources", (req, res) => {
-  res.json({
-    success: true,
-    data: NEWS_SOURCES.map((s) => ({
-      id: s.id,
-      name: s.name,
-      color: s.color,
-      icon: s.icon,
-    })),
-  });
 });
 
 app.listen(PORT, () => {

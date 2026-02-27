@@ -1,5 +1,6 @@
 // ── State ────────────────────────────────────────────
 let newsData = [];
+let socialData = [];
 let activeSource = "all";
 
 // ── DOM Elements ────────────────────────────────────
@@ -16,7 +17,7 @@ document.addEventListener("DOMContentLoaded", () => {
   refreshBtn.addEventListener("click", () => loadNews(true));
 });
 
-// ── Fetch News ──────────────────────────────────────
+// ── Fetch News + Social ─────────────────────────────
 async function loadNews(forceRefresh = false) {
   loading.style.display = "block";
   errorState.style.display = "none";
@@ -25,16 +26,23 @@ async function loadNews(forceRefresh = false) {
   refreshBtn.classList.add("spinning");
 
   try {
-    const url = forceRefresh ? "/api/news?refresh=true" : "/api/news";
-    const res = await fetch(url);
-    const json = await res.json();
+    const suffix = forceRefresh ? "?refresh=true" : "";
+    const [newsRes, socialRes] = await Promise.all([
+      fetch("/api/news" + suffix),
+      fetch("/api/social" + suffix),
+    ]);
 
-    if (!json.success) throw new Error("API error");
+    const newsJson = await newsRes.json();
+    const socialJson = await socialRes.json();
 
-    newsData = json.data;
+    if (!newsJson.success) throw new Error("News API error");
+
+    newsData = newsJson.data;
+    socialData = socialJson.success ? socialJson.data : [];
+
     buildTabs();
     renderNews();
-    updateTimestamp(json.timestamp);
+    updateTimestamp(newsJson.timestamp);
   } catch (err) {
     console.error("Failed to load news:", err);
     errorState.style.display = "block";
@@ -46,7 +54,6 @@ async function loadNews(forceRefresh = false) {
 
 // ── Build Tabs ──────────────────────────────────────
 function buildTabs() {
-  // Keep the "All Sources" tab
   tabsContainer.innerHTML =
     '<button class="tab active" data-source="all">All Sources</button>';
 
@@ -58,12 +65,22 @@ function buildTabs() {
     tabsContainer.appendChild(btn);
   });
 
-  // Tab click handling
+  // Social tabs
+  socialData.forEach((source) => {
+    const btn = document.createElement("button");
+    btn.className = "tab social-tab";
+    btn.dataset.source = source.id;
+    btn.textContent = `${source.icon} ${source.name}`;
+    tabsContainer.appendChild(btn);
+  });
+
   tabsContainer.addEventListener("click", (e) => {
     const tab = e.target.closest(".tab");
     if (!tab) return;
 
-    tabsContainer.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+    tabsContainer
+      .querySelectorAll(".tab")
+      .forEach((t) => t.classList.remove("active"));
     tab.classList.add("active");
     activeSource = tab.dataset.source;
     renderNews();
@@ -74,84 +91,99 @@ function buildTabs() {
 function renderNews() {
   grid.innerHTML = "";
 
-  const sources =
-    activeSource === "all"
+  // Determine what to show
+  const isSocialFilter = socialData.some((s) => s.id === activeSource);
+  const isAll = activeSource === "all";
+
+  // Render news sources
+  if (isAll || !isSocialFilter) {
+    const sources = isAll
       ? newsData
       : newsData.filter((s) => s.id === activeSource);
 
-  sources.forEach((source) => {
-    const section = document.createElement("section");
-    section.className = "source-section";
+    sources.forEach((source) => {
+      grid.appendChild(buildSourceSection(source, false));
+    });
+  }
 
-    const hasArticles = source.articles && source.articles.length > 0;
+  // Render social section
+  if (isAll || isSocialFilter) {
+    const socialSources = isAll
+      ? socialData
+      : socialData.filter((s) => s.id === activeSource);
 
-    section.innerHTML = `
-      <div class="source-header">
-        <div class="source-badge" style="background: ${hexToRgba(source.color, 0.15)}">
-          ${source.icon}
-        </div>
-        <h2 class="source-name">${source.name}</h2>
-        <span class="source-count">${hasArticles ? source.articles.length + " stories" : "No stories available"}</span>
-      </div>
-      ${
-        hasArticles
-          ? `<div class="articles">${source.articles
-              .map((article, i) => articleCard(article, i, source.color))
-              .join("")}</div>`
-          : `<div class="source-no-articles">Unable to fetch stories from this source right now. Try again later.</div>`
+    if (socialSources.length > 0) {
+      // Add divider before social section (only in "all" view)
+      if (isAll) {
+        const divider = document.createElement("div");
+        divider.className = "section-divider";
+        divider.innerHTML = `
+          <div class="section-divider-inner">
+            <div class="section-divider-line"></div>
+            <span class="section-divider-label">Social Trending</span>
+            <div class="section-divider-line"></div>
+          </div>
+        `;
+        grid.appendChild(divider);
       }
-    `;
 
-    grid.appendChild(section);
-  });
+      socialSources.forEach((source) => {
+        grid.appendChild(buildSourceSection(source, true));
+      });
+    }
+  }
 }
 
-// ── Mixed Article Card (shows source label) ────────
-function mixedArticleCard(article, index) {
-  const date = article.pubDate ? formatDate(article.pubDate) : "";
-  const summary = article.summary || "No summary available.";
+function buildSourceSection(source, isSocial) {
+  const section = document.createElement("section");
+  section.className = "source-section" + (isSocial ? " social-section" : "");
 
-  return `
-    <a href="${escapeHtml(article.link)}" target="_blank" rel="noopener noreferrer"
-       class="article-card" style="--card-accent: ${article.sourceColor}">
-      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-        <span class="article-source-tag" style="background:${hexToRgba(article.sourceColor, 0.15)}; color:${article.sourceColor};">
-          ${article.sourceIcon} ${escapeHtml(article.sourceName)}
-        </span>
-        ${date ? `<span class="article-date">${date}</span>` : ""}
+  const hasArticles = source.articles && source.articles.length > 0;
+
+  section.innerHTML = `
+    <div class="source-header">
+      <div class="source-badge" style="background: ${hexToRgba(source.color, 0.15)}">
+        ${source.icon}
       </div>
-      <h3 class="article-title">${escapeHtml(article.title)}</h3>
-      <p class="article-summary">${escapeHtml(summary)}</p>
-      <div class="article-meta">
-        <span class="article-date">${date ? "Published " + date : ""}</span>
-        <span class="article-read">
-          Read
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-            <polyline points="12 5 19 12 12 19"></polyline>
-          </svg>
-        </span>
-      </div>
-    </a>
+      <h2 class="source-name">${source.name}</h2>
+      <span class="source-count">${hasArticles ? source.articles.length + " stories" : "No stories available"}</span>
+    </div>
+    ${
+      hasArticles
+        ? `<div class="articles">${source.articles
+            .map((article, i) =>
+              articleCard(article, i, source.color, source.icon)
+            )
+            .join("")}</div>`
+        : `<div class="source-no-articles">Unable to fetch stories from this source right now. Try again later.</div>`
+    }
   `;
+
+  return section;
 }
 
 // ── Article Card ────────────────────────────────────
-function articleCard(article, index, color) {
+function articleCard(article, index, color, sourceIcon) {
   const date = article.pubDate ? formatDate(article.pubDate) : "";
   const summary = article.summary || "No summary available.";
 
+  const imageHtml = article.image
+    ? `<img class="article-image" src="${escapeAttr(article.image)}" alt="" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'article-image-placeholder\\'>${sourceIcon}</div>'">`
+    : `<div class="article-image-placeholder">${sourceIcon}</div>`;
+
   return `
-    <a href="${escapeHtml(article.link)}" target="_blank" rel="noopener noreferrer"
+    <a href="${escapeAttr(article.link)}" target="_blank" rel="noopener noreferrer"
        class="article-card" style="--card-accent: ${color}">
-      <div style="display:flex; align-items:center; gap:10px;">
+      <div class="article-image-wrap">
         <span class="article-number">${index + 1}</span>
-        ${date ? `<span class="article-date">${date}</span>` : ""}
+        ${imageHtml}
       </div>
-      <h3 class="article-title">${escapeHtml(article.title)}</h3>
-      <p class="article-summary">${escapeHtml(summary)}</p>
+      <div class="article-body">
+        <h3 class="article-title">${escapeHtml(article.title)}</h3>
+        <p class="article-summary">${escapeHtml(summary)}</p>
+      </div>
       <div class="article-meta">
-        <span class="article-date">${date ? "Published " + date : ""}</span>
+        <span class="article-date">${date || ""}</span>
         <span class="article-read">
           Read
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -197,6 +229,7 @@ function updateTimestamp(ts) {
 }
 
 function hexToRgba(hex, alpha) {
+  if (!hex || hex.length < 7) return `rgba(100,100,100,${alpha})`;
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
@@ -207,4 +240,13 @@ function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
   return div.innerHTML;
+}
+
+function escapeAttr(str) {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }

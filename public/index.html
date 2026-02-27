@@ -7,18 +7,17 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=3" />
+  <link rel="stylesheet" href="style.css?v=4" />
 </head>
 <body>
   <div class="app">
-    <!-- Header -->
     <header class="header">
       <div class="header-inner">
         <div class="logo">
           <span class="logo-icon">◆</span>
           <h1>Global News Dashboard</h1>
         </div>
-        <p class="subtitle">Top stories from the world's leading news outlets</p>
+        <p class="subtitle">Breaking news & social trends from around the world</p>
         <div class="header-meta">
           <span class="live-dot"></span>
           <span id="last-updated">Loading...</span>
@@ -33,24 +32,20 @@
       </div>
     </header>
 
-    <!-- Source filter tabs -->
     <nav class="source-tabs" id="source-tabs">
       <button class="tab active" data-source="all">All Sources</button>
     </nav>
 
-    <!-- Loading state -->
     <div class="loading" id="loading">
       <div class="loading-spinner"></div>
       <p>Fetching the latest stories...</p>
     </div>
 
-    <!-- Error state -->
-    <div class="error-state" id="error-state" style="display:none">
+    <div class="error-state" id="error-state">
       <p>Something went wrong. Please try again.</p>
       <button onclick="loadNews()">Retry</button>
     </div>
 
-    <!-- News grid -->
     <main class="news-grid" id="news-grid"></main>
   </div>
 
@@ -58,6 +53,6 @@
     <p>Stories sourced from public RSS feeds. Updated every 3 minutes.</p>
   </footer>
 
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>
