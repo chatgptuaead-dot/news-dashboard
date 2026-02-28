@@ -13,9 +13,6 @@ const parser = new RSSParser({
   customFields: {
     item: [
       ["content:encoded", "content:encoded"],
-      ["media:content", "media:content"],
-      ["media:thumbnail", "media:thumbnail"],
-      ["media:group", "media:group"],
     ],
   },
 });
@@ -56,10 +53,6 @@ async function fetchFeedRaw(feedUrl) {
       const link = block.match(/<link[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/link>/i);
       const desc = block.match(/<description[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/i);
       const pubDate = block.match(/<pubDate[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/pubDate>/i);
-      const encUrl = block.match(/<enclosure[^>]+url=["']([^"']+)["']/i);
-      const mediaUrl = block.match(/<media:content[^>]+url=["']([^"']+)["']/i);
-      const mediaThumb = block.match(/<media:thumbnail[^>]+url=["']([^"']+)["']/i);
-      const imgInDesc = (desc && desc[1] || '').match(/<img[^>]+src=["']([^"']+)["']/i);
       const contentEncoded = block.match(/<content:encoded[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/content:encoded>/i);
 
       if (title) {
@@ -69,11 +62,6 @@ async function fetchFeedRaw(feedUrl) {
           description: desc ? desc[1] : '',
           pubDate: pubDate ? pubDate[1].trim() : null,
         };
-        // Attach image
-        if (encUrl) item.enclosure = { url: encUrl[1] };
-        if (mediaUrl) item._mediaContentUrl = mediaUrl[1];
-        if (mediaThumb) item._mediaThumbnailUrl = mediaThumb[1];
-        if (imgInDesc) item._descImgUrl = imgInDesc[1];
         if (contentEncoded) item['content:encoded'] = contentEncoded[1];
         items.push(item);
       }
@@ -344,24 +332,11 @@ async function fetchFeed(source, retryCount = 0) {
       link: item.link || "#",
       summary: extractSummary(item),
       pubDate: item.pubDate || item.isoDate || null,
-      image: extractImage(item),
     }));
 
-    // Resolve Google News URLs and fetch og:image for missing photos
+    // Resolve Google News URLs to real article links
     await Promise.allSettled(
-      items.map(async (article) => {
-        // Try to resolve Google News links to real article URLs
-        await resolveGoogleNewsArticle(article);
-
-        // Fetch og:image if no image from RSS
-        if (!article.image && article.link && article.link !== "#") {
-          if (!article.link.includes("news.google.com")) {
-            article.image = await fetchOgImage(article.link);
-          }
-        }
-
-        // No thum.io - it's unreliable. Placeholder will be shown client-side.
-      })
+      items.map((article) => resolveGoogleNewsArticle(article))
     );
 
     if (items.length > 0) break;
@@ -409,10 +384,8 @@ async function resolveGoogleNewsArticle(article) {
 
     clearTimeout(timeout);
 
-    // Check if redirect landed on a googleusercontent image URL - use as thumbnail
+    // If redirect landed on a googleusercontent image URL, skip
     if (res.url && res.url.includes("googleusercontent.com")) {
-      if (!article.image) article.image = res.url;
-      // Keep original Google News link (will redirect in browser)
       return;
     }
 
@@ -423,20 +396,10 @@ async function resolveGoogleNewsArticle(article) {
       !res.url.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i)
     ) {
       article.link = res.url;
-      // Try og:image from the real article page
-      if (!article.image) {
-        const html = (await res.text()).substring(0, 60000);
-        const ogImg = html.match(
-          /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i
-        ) || html.match(
-          /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i
-        );
-        if (ogImg && !isGenericImage(ogImg[1])) article.image = ogImg[1];
-      }
       return;
     }
 
-    // Parse the Google News page for the real URL and images
+    // Parse the Google News page for the real URL
     const html = await res.text();
 
     // Try to find the real article URL (exclude google domains AND googleusercontent)
@@ -453,130 +416,9 @@ async function resolveGoogleNewsArticle(article) {
       }
     }
 
-    // Extract thumbnail images from the Google News page
-    if (!article.image) {
-      const imgPatterns = [
-        /src=["'](https?:\/\/lh\d*\.googleusercontent\.com[^"']+)["']/i,
-        /src=["'](https?:\/\/[^"']*(?:googleusercontent|gstatic)[^"']*\.(?:jpg|jpeg|png|webp)[^"']*)["']/i,
-        /srcset=["']([^"'\s]+)/i,
-      ];
-      for (const pat of imgPatterns) {
-        const m = html.match(pat);
-        if (m) {
-          article.image = m[1];
-          break;
-        }
-      }
-    }
   } catch {
     // Keep original Google News link on error
   }
-}
-
-// Fetch og:image from an article's page using got-scraping (bypasses bot detection)
-let gotScrapingModule = null;
-async function getGotScraping() {
-  if (!gotScrapingModule) {
-    try {
-      gotScrapingModule = await import('got-scraping');
-    } catch {
-      gotScrapingModule = false;
-    }
-  }
-  return gotScrapingModule;
-}
-
-async function fetchOgImage(url) {
-  // Skip google URLs
-  if (url.includes("google.com") || url.includes("googleusercontent.com")) return null;
-
-  // Try got-scraping first (bypasses TLS fingerprint detection)
-  const got = await getGotScraping();
-  if (got && got.gotScraping) {
-    try {
-      const res = await got.gotScraping({
-        url,
-        headerGeneratorOptions: { browsers: ['chrome'], operatingSystems: ['macos'] },
-        timeout: { request: 8000 },
-        followRedirect: true,
-      });
-      if (res.statusCode >= 200 && res.statusCode < 400) {
-        const html = res.body.substring(0, 80000);
-        const img = extractOgFromHtml(html);
-        if (img) return img;
-      }
-    } catch {}
-  }
-
-  // Fallback: try with different user agents
-  const userAgents = [
-    "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
-    "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  ];
-
-  for (const ua of userAgents) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
-      const res = await fetch(url, {
-        signal: controller.signal,
-        headers: { "User-Agent": ua, Accept: "text/html,application/xhtml+xml" },
-        redirect: "follow",
-      });
-      clearTimeout(timeout);
-      if (!res.ok) continue;
-      const html = (await res.text()).substring(0, 60000);
-      const img = extractOgFromHtml(html);
-      if (img) return img;
-      return null;
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-function extractOgFromHtml(html) {
-  // Try og:image
-  const ogMatch = html.match(
-    /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i
-  ) || html.match(
-    /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i
-  );
-  if (ogMatch && !isGenericImage(ogMatch[1])) return ogMatch[1];
-
-  // Try twitter:image
-  const twMatch = html.match(
-    /<meta[^>]+(?:name|property)=["']twitter:image(?::src)?["'][^>]+content=["']([^"']+)["']/i
-  ) || html.match(
-    /<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["']twitter:image(?::src)?["']/i
-  );
-  if (twMatch && !isGenericImage(twMatch[1])) return twMatch[1];
-
-  // Try first substantial image
-  const imgMatch = html.match(
-    /<img[^>]+src=["'](https?:\/\/[^"']+(?:\.jpg|\.jpeg|\.png|\.webp)[^"']*)["']/i
-  );
-  if (imgMatch && !isGenericImage(imgMatch[1])) return imgMatch[1];
-
-  return null;
-}
-
-// Filter out generic logos/icons that aren't article images
-function isGenericImage(url) {
-  if (!url) return true;
-  const lower = url.toLowerCase();
-  return (
-    lower.includes("logo") ||
-    lower.includes("favicon") ||
-    lower.includes("icon") ||
-    lower.includes("default.jpg") ||
-    lower.includes("share-image") ||
-    lower.includes("placeholder") ||
-    lower.endsWith(".svg") ||
-    lower.includes("brand")
-  );
 }
 
 function parseDate(dateStr) {
@@ -647,53 +489,6 @@ function extractSummary(item) {
   }
 
   return best;
-}
-
-function extractImage(item) {
-  // 1. Enclosure
-  if (item.enclosure && item.enclosure.url) return item.enclosure.url;
-
-  // 2. media:content (rss-parser format)
-  if (item["media:content"]) {
-    const mc = item["media:content"];
-    if (mc["$"] && mc["$"].url) return mc["$"].url;
-    if (typeof mc === "string") return mc;
-    if (Array.isArray(mc) && mc[0] && mc[0]["$"]) return mc[0]["$"].url;
-  }
-
-  // 3. media:thumbnail (rss-parser format)
-  if (item["media:thumbnail"]) {
-    const mt = item["media:thumbnail"];
-    if (mt["$"] && mt["$"].url) return mt["$"].url;
-    if (typeof mt === "string") return mt;
-  }
-
-  // 4. media:group
-  if (item["media:group"]) {
-    const mg = item["media:group"];
-    if (mg["media:content"] && mg["media:content"]["$"])
-      return mg["media:content"]["$"].url;
-  }
-
-  // 5. Raw-parsed media URLs (from fetchFeedRaw)
-  if (item._mediaContentUrl) return item._mediaContentUrl;
-  if (item._mediaThumbnailUrl) return item._mediaThumbnailUrl;
-  if (item._descImgUrl) return item._descImgUrl;
-
-  // 6. Extract from content HTML (covers Google News description thumbnails)
-  const fields = [
-    item.content,
-    item["content:encoded"],
-    item.description,
-    item.summary,
-  ];
-  for (const field of fields) {
-    if (!field) continue;
-    const imgMatch = field.match(/<img[^>]+src=["']([^"']+)["']/);
-    if (imgMatch && !imgMatch[1].includes("feedburner")) return imgMatch[1];
-  }
-
-  return null;
 }
 
 // Disable browser caching

@@ -167,46 +167,14 @@ function articleCard(article, index, color, sourceIcon) {
   const date = article.pubDate ? formatDate(article.pubDate) : "";
   const summary = article.summary || "No summary available.";
 
-  // Get first letter of title for placeholder
-  const firstChar = (article.title || "N")[0].toUpperCase();
-
-  // Extract domain for favicon
-  let domain = "";
-  try {
-    domain = new URL(article.link).hostname;
-  } catch {}
-  const faviconUrl = domain
-    ? `https://t3.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${domain}&size=64`
-    : "";
-
-  const placeholderInner = faviconUrl
-    ? `<img class="ph-favicon" src="${escapeAttr(faviconUrl)}" alt="" onerror="this.style.display='none'">
-       <span class="ph-letter">${firstChar}</span>`
-    : `<span class="ph-icon">${sourceIcon}</span>
-       <span class="ph-letter">${firstChar}</span>`;
-
-  const showPlaceholder = "this.style.display='none'; this.nextElementSibling.style.display='flex';";
-
-  const imageHtml = article.image
-    ? `<img class="article-image" src="${escapeAttr(article.image)}" alt="" loading="lazy"
-         onerror="${escapeAttr(showPlaceholder)}"
-         onload="if(this.naturalWidth<10||this.naturalHeight<10){${showPlaceholder}}">
-       <div class="article-image-placeholder" style="display:none; --ph-color:${color}">
-         ${placeholderInner}
-       </div>`
-    : `<div class="article-image-placeholder" style="--ph-color:${color}">
-         ${placeholderInner}
-       </div>`;
-
   return `
     <a href="${escapeAttr(article.link)}" target="_blank" rel="noopener noreferrer"
        class="article-card" style="--card-accent: ${color}">
-      <div class="article-image-wrap">
-        <span class="article-number">${index + 1}</span>
-        ${imageHtml}
-      </div>
       <div class="article-body">
-        <h3 class="article-title">${escapeHtml(article.title)}</h3>
+        <div class="article-top">
+          <span class="article-number">${index + 1}</span>
+          <h3 class="article-title">${escapeHtml(article.title)}</h3>
+        </div>
         <p class="article-summary">${escapeHtml(summary)}</p>
       </div>
       <div class="article-meta">
@@ -277,19 +245,3 @@ function escapeAttr(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }
-
-// Catch images that fail to load or load as tiny/blank - show placeholder instead
-function checkBrokenImages() {
-  document.querySelectorAll(".article-image").forEach((img) => {
-    if (img.complete) {
-      if (!img.naturalWidth || img.naturalWidth < 10 || !img.naturalHeight || img.naturalHeight < 10) {
-        img.style.display = "none";
-        const ph = img.nextElementSibling;
-        if (ph) ph.style.display = "flex";
-      }
-    }
-  });
-}
-// Run after render and periodically to catch late failures
-setTimeout(checkBrokenImages, 3000);
-setTimeout(checkBrokenImages, 8000);
